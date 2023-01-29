@@ -34,3 +34,21 @@ The script accepts the following optional arguments:
   --hidden-dim N    hidden layer dimension (encoder: input -> hidden -> latent, decoder: latent -> hidden -> input), (default: 400)
   --latent-dim N    latent dimension (encoder: input -> hidden -> latent, decoder: latent -> hidden -> input), (default: 20)
 ```
+
+## pytorch_lightning_vae.py
+
+The previous VAE adapted to the PyTorch Lightning framework. (In progress)
+
+For now, the usage is the same as the previous one:
+
+```bash
+python pytorch_examples_vae.py [additional args]
+```
+
+TO DO: 
+- explanations of things
+- DataLoader -> LightningDataModule
+- un-hardcode the num_workers for the data loaders (now it is at 16)
+- checkpointing
+- batch finder and learning rate finder
+- keep reading
