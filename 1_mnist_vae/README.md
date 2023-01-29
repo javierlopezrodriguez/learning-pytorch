@@ -18,7 +18,7 @@ Adapted from the [PyTorch VAE example](https://github.com/pytorch/examples/blob/
 
 ### Usage:
 ```bash
-python pytorch_examples_vae.py
+python pytorch_lightning_vae.py
 ```
 
 The script accepts the following optional arguments:
