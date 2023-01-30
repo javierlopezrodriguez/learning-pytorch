@@ -47,10 +47,10 @@ python pytorch_lightning_vae.py
 
 TO DO: 
 - explanations of things
-- DataLoader -> LightningDataModule
-- un-hardcode the num_workers for the data loaders (now it is at 16)
+- un-hardcode the num_workers and pin_memory from the dataloaders
 - checkpointing
 - batch finder and learning rate finder
 - save hyperparameters in the lightning (data) modules
 - add additional arguments
+- convert the sampling and reconstruction images into callbacks
 - keep reading
