@@ -51,4 +51,6 @@ TO DO:
 - un-hardcode the num_workers for the data loaders (now it is at 16)
 - checkpointing
 - batch finder and learning rate finder
+- save hyperparameters in the lightning (data) modules
+- add additional arguments
 - keep reading

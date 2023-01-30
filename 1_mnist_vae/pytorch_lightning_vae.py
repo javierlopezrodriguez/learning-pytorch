@@ -2,6 +2,7 @@ from __future__ import print_function
 import argparse
 import torch
 import torch.utils.data
+from torch.utils.data import DataLoader
 from torch import nn, optim
 from torch.nn import functional as F
 from torchvision import datasets, transforms
@@ -34,21 +35,62 @@ use_mps = not args.no_mps and torch.backends.mps.is_available()
 
 torch.manual_seed(args.seed)
 
+# accelerator to use on pl.Trainer
 if args.cuda:
-    device = torch.device("cuda")
+    accelerator = "gpu"
 elif use_mps:
-    device = torch.device("mps")
+    accelerator = "mps"
 else:
-    device = torch.device("cpu")
+    accelerator = "cpu"
 
-kwargs = {'num_workers': 16, 'pin_memory': True} if args.cuda else {}
-train_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=True, download=True,
-                   transform=transforms.ToTensor()),
-    batch_size=args.batch_size, shuffle=True, **kwargs)
-test_loader = torch.utils.data.DataLoader(
-    datasets.MNIST('../data', train=False, transform=transforms.ToTensor()),
-    batch_size=args.batch_size, shuffle=False, **kwargs)
+# See https://pytorch-lightning.readthedocs.io/en/latest/data/datamodule.html
+# when working with more than two splits, to see where train, val and test go.
+
+class MNISTDataModule(pl.LightningDataModule):
+    def __init__(self, data_dir='../data', batch_size = args.batch_size, num_workers = 16):
+        super().__init__()
+        self.data_dir = data_dir
+        self.transform = transforms.ToTensor()
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+
+    def prepare_data(self) -> None:
+        # Downloading the datasets if they are not already downloaded
+        # for training (typically this dataset would be used for train + val)
+        datasets.MNIST(self.data_dir, train=True, download=True)
+        # for evaluation (in this example I'm using it for val, 
+        # typically it would be used for test)
+        datasets.MNIST(self.data_dir, train=False, download=True)
+
+    def setup(self, stage: str) -> None:
+        # train / val (the only stage I'm using)
+        if stage == 'fit':
+            self.train_data = datasets.MNIST(self.data_dir, train=True, transform=self.transform)
+            self.val_data = datasets.MNIST(self.data_dir, train=False, transform=self.transform)
+
+        if stage == 'test':
+            pass 
+            # here it would be the dataset with train=False if I was using Trainer.test()
+            # I am only using Trainer.fit() so I'm only defining the 'fit' stage.
+
+    def train_dataloader(self):
+        return DataLoader(self.train_data, 
+                          batch_size=self.batch_size, 
+                          shuffle=True,
+                          num_workers=self.num_workers,
+                          pin_memory=True,
+                          )
+
+    def val_dataloader(self):
+        return DataLoader(self.val_data, 
+                          batch_size=self.batch_size, 
+                          shuffle=False,
+                          num_workers = self.num_workers,
+                          pin_memory=True,
+                          )
+    
+# TO DO: un-hardcode this from the LightningDataModule:
+# kwargs = {'num_workers': 16, 'pin_memory': True} if args.cuda else {}
     
 # Loss functions:
 def recon_loss(recon_x, x):
@@ -163,9 +205,11 @@ class plVAE(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
+
+mnist_data = MNISTDataModule()
 model = plVAE(hidden_dim = args.hidden_dim, latent_dim=args.latent_dim)
-trainer = pl.Trainer(accelerator="gpu", devices=1, max_epochs=args.epochs)
-trainer.fit(model, train_dataloaders=train_loader, val_dataloaders=test_loader)
+trainer = pl.Trainer(accelerator=accelerator, devices=1, max_epochs=args.epochs)
+trainer.fit(model, datamodule=mnist_data)
 
 
 
