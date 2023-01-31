@@ -8,6 +8,7 @@ from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 import pytorch_lightning as pl
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
@@ -205,10 +206,20 @@ class plVAE(pl.LightningModule):
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=1e-3)
 
+# Callbacks:
+# Checkpoint the model with the minimum val_loss
+checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/",
+                                      monitor="val_loss", mode="min")
+# Early stopping, stop training when val_loss does not improve
+# (reduce more than min_delta=0.5) for patience=3 validation steps
+early_stopping_callback = EarlyStopping(monitor="val_loss", mode="min",
+                                        patience=3, min_delta=0.5)
 
 mnist_data = MNISTDataModule()
 model = plVAE(hidden_dim = args.hidden_dim, latent_dim=args.latent_dim)
-trainer = pl.Trainer(accelerator=accelerator, devices=1, max_epochs=args.epochs)
+trainer = pl.Trainer(accelerator=accelerator, devices=1, 
+                     max_epochs=args.epochs,
+                     callbacks=[checkpoint_callback, early_stopping_callback])
 trainer.fit(model, datamodule=mnist_data)
 
 
