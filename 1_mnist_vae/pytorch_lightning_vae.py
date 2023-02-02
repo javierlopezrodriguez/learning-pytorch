@@ -30,6 +30,8 @@ parser.add_argument('--hidden-dim', type=int, default=400, metavar='N',
                     help='hidden layer dimension (encoder: input -> hidden -> latent, decoder: latent -> hidden -> input), (default: 400)')
 parser.add_argument('--latent-dim', type=int, default=20, metavar='N',
                     help='latent dimension (encoder: input -> hidden -> latent, decoder: latent -> hidden -> input), (default: 20)')
+parser.add_argument('--num-workers', type=int, default=16, metavar='N',
+                    help='number of workers for the dataloaders')
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 use_mps = not args.no_mps and torch.backends.mps.is_available()
@@ -48,12 +50,14 @@ else:
 # when working with more than two splits, to see where train, val and test go.
 
 class MNISTDataModule(pl.LightningDataModule):
-    def __init__(self, data_dir='../data', batch_size = args.batch_size, num_workers = 16):
+    def __init__(self, data_dir='../data', batch_size = 32, num_workers = 1, pin_memory = True):
         super().__init__()
-        self.data_dir = data_dir
+        self.save_hyperparameters()
+        self.data_dir = self.hparams.data_dir
         self.transform = transforms.ToTensor()
-        self.batch_size = batch_size
-        self.num_workers = num_workers
+        self.batch_size = self.hparams.batch_size
+        self.num_workers = self.hparams.num_workers
+        self.pin_memory = self.hparams.pin_memory
 
     def prepare_data(self) -> None:
         # Downloading the datasets if they are not already downloaded
@@ -79,7 +83,7 @@ class MNISTDataModule(pl.LightningDataModule):
                           batch_size=self.batch_size, 
                           shuffle=True,
                           num_workers=self.num_workers,
-                          pin_memory=True,
+                          pin_memory=self.pin_memory,
                           )
 
     def val_dataloader(self):
@@ -87,11 +91,8 @@ class MNISTDataModule(pl.LightningDataModule):
                           batch_size=self.batch_size, 
                           shuffle=False,
                           num_workers = self.num_workers,
-                          pin_memory=True,
+                          pin_memory=self.pin_memory,
                           )
-    
-# TO DO: un-hardcode this from the LightningDataModule:
-# kwargs = {'num_workers': 16, 'pin_memory': True} if args.cuda else {}
     
 # Loss functions:
 def recon_loss(recon_x, x):
@@ -125,10 +126,10 @@ class plVAE(pl.LightningModule):
     # Model architecture
     def __init__(self, input_dim = 784, hidden_dim = 400, latent_dim = 20):
         super(plVAE, self).__init__()
-
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.latent_dim = latent_dim
+        self.save_hyperparameters()
+        self.input_dim = self.hparams.input_dim
+        self.hidden_dim = self.hparams.hidden_dim
+        self.latent_dim = self.hparams.latent_dim
 
         self.encoder = nn.Sequential(*[nn.Linear(self.input_dim, self.hidden_dim),
                                       nn.ReLU(inplace=True), 
@@ -224,7 +225,7 @@ class ImageCallback(Callback):
                         'results/reconstruction_' + str(epoch) + '.png', nrow=n)
 
 # Main:
-mnist_data = MNISTDataModule()
+mnist_data = MNISTDataModule(batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=args.cuda)
 model = plVAE(hidden_dim = args.hidden_dim, latent_dim=args.latent_dim)
 trainer = pl.Trainer(accelerator=accelerator, devices=1, 
                      max_epochs=args.epochs,

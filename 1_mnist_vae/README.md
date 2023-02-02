@@ -47,8 +47,6 @@ python pytorch_lightning_vae.py
 
 TO DO: 
 - explanations of things
-- un-hardcode the num_workers and pin_memory from the dataloaders
 - batch finder and learning rate finder
-- save hyperparameters in the lightning (data) modules
 - add additional arguments
 - keep reading
