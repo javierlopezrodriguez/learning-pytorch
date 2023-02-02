@@ -51,5 +51,4 @@ TO DO:
 - batch finder and learning rate finder
 - save hyperparameters in the lightning (data) modules
 - add additional arguments
-- convert the sampling and reconstruction images into callbacks
 - keep reading

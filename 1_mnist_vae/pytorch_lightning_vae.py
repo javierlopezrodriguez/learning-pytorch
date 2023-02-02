@@ -8,7 +8,7 @@ from torch.nn import functional as F
 from torchvision import datasets, transforms
 from torchvision.utils import save_image
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Callback
 
 
 parser = argparse.ArgumentParser(description='VAE MNIST Example')
@@ -22,7 +22,7 @@ parser.add_argument('--no-mps', action='store_true', default=False,
                         help='disables macOS GPU training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+parser.add_argument('--log-interval', type=int, default=50, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--kl-coeff', type=int, default=1, metavar='N',
                     help='importance of the KL loss on the overall loss function (default: 1)')
@@ -155,17 +155,18 @@ class plVAE(pl.LightningModule):
         z = self.reparameterize(mu, logvar)
         return self.decoder(z), mu, logvar
 
+    # training_step and validation_step note about previous bug:
+    # I had previously called the model with 'model(data)', which worked but was incorrect.
+    # It is called properly with 'self(data)'.
+    # It only worked because I defined the 'model' variable at the end of the script and it was using that.
+
     # Training loop
     def training_step(self, batch, batch_idx):
         # Training process
-        data, _ = batch
-        recon_batch, mu, logvar = model(data) # forward (automatic calls to .train())
-        loss, recon_l, kl_l = full_loss(recon_batch, data, mu, logvar) # loss calculation
-
+        loss, recon_l, kl_l = self._common_step(batch, batch_idx) # Forward + loss calculation
         # Metrics
-        metrics = {"loss": loss / len(data), # required, actual loss that will be used for training
-                   "recon_loss": recon_l / len(data), 
-                   "kl_loss": kl_l / len(data)}
+        # required "loss", actual loss that will be used for training
+        metrics = {"loss": loss, "recon_loss": recon_l, "kl_loss": kl_l}
         # logs metrics for each training_step, 
         # and the average across the epoch, to the progress bar and logger
         self.log_dict(metrics, prog_bar = True, on_step = True, on_epoch = True, logger = True)
@@ -173,34 +174,18 @@ class plVAE(pl.LightningModule):
 
     # Evaluation loop
     def validation_step(self, batch, batch_idx):
-        # Validation process
-        data, _ = batch
-        recon_batch, mu, logvar = model(data) # forward (automatic calls to .eval())
-        loss, recon_l, kl_l = full_loss(recon_batch, data, mu, logvar) # loss calculation
-
-        # Metrics
-        metrics = {"val_loss": loss / len(data), 
-                   "val_recon_loss": recon_l / len(data), 
-                   "val_kl_loss": kl_l / len(data)}
+        loss, recon_l, kl_l = self._common_step(batch, batch_idx) # Forward + loss calculation
+        metrics = {"val_loss": loss, "val_recon_loss": recon_l, "val_kl_loss": kl_l} # Metrics
         # logs average metrics across the validation epoch, to the progress bar and logger
         self.log_dict(metrics, prog_bar = True, on_epoch = True, logger = True)
-
-        # Reconstruction example
-        epoch = self.current_epoch
-        if batch_idx == 0:
-            n = min(data.size(0), 8)
-            comparison = torch.cat([data[:n],
-                                    recon_batch.view(args.batch_size, 1, 28, 28)[:n]])
-            save_image(comparison.detach(),
-                        'results/reconstruction_' + str(epoch) + '.png', nrow=n)
         return metrics
 
-    # Sampling at the end of the validation epoch
-    def validation_epoch_end(self, outputs):
-        epoch = self.current_epoch
-        sample = self.decoder(torch.randn(64, self.latent_dim, device=self.device))
-        save_image(sample.view(64, 1, 28, 28).detach(),
-                    'results/sample_' + str(epoch) + '.png')
+    def _common_step(self, batch, batch_idx):
+        data, _ = batch
+        recon_batch, mu, logvar = self(data) # forward
+        loss, recon_l, kl_l = full_loss(recon_batch, data, mu, logvar) # loss calculation
+        return loss / len(data), recon_l / len(data), kl_l / len(data)
+
     
     # Optimizer
     def configure_optimizers(self):
@@ -214,12 +199,37 @@ checkpoint_callback = ModelCheckpoint(dirpath="checkpoints/",
 # (reduce more than min_delta=0.5) for patience=3 validation steps
 early_stopping_callback = EarlyStopping(monitor="val_loss", mode="min",
                                         patience=3, min_delta=0.5)
+# Custom callback for sampling and reconstruction images
+class ImageCallback(Callback):
+    # Sampling at the end of the validation epoch
+    def on_validation_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        epoch = trainer.current_epoch
+        sample = pl_module.decoder(torch.randn(64, pl_module.latent_dim, device=pl_module.device))
+        save_image(sample.view(64, 1, 28, 28).detach(),
+                    'results/sample_' + str(epoch) + '.png')
+    
+    # Reconstruction example
+    def on_validation_batch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", outputs, batch, batch_idx, dataloader_idx) -> None:
+        
+        if batch_idx == 0:
+            data, _ = batch
+            recon_batch, _, _ = pl_module(data) # forward
 
+            # Reconstruction example
+            epoch = trainer.current_epoch
+            n = min(data.size(0), 8)
+            comparison = torch.cat([data[:n],
+                                    recon_batch.view(data.size(0), 1, 28, 28)[:n]])
+            save_image(comparison.detach(),
+                        'results/reconstruction_' + str(epoch) + '.png', nrow=n)
+
+# Main:
 mnist_data = MNISTDataModule()
 model = plVAE(hidden_dim = args.hidden_dim, latent_dim=args.latent_dim)
 trainer = pl.Trainer(accelerator=accelerator, devices=1, 
                      max_epochs=args.epochs,
-                     callbacks=[checkpoint_callback, early_stopping_callback])
+                     callbacks=[checkpoint_callback, early_stopping_callback, ImageCallback()],
+                     log_every_n_steps=args.log_interval)
 trainer.fit(model, datamodule=mnist_data)
 
 
