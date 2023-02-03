@@ -47,6 +47,7 @@ python pytorch_lightning_vae.py
 
 TO DO: 
 - explanations of things
-- batch finder and learning rate finder
+- batch finder and learning rate finder (commented)
+- learning rate scheduler
 - add additional arguments
 - keep reading

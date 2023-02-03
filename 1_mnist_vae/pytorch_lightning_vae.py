@@ -52,26 +52,22 @@ else:
 class MNISTDataModule(pl.LightningDataModule):
     def __init__(self, data_dir='../data', batch_size = 32, num_workers = 1, pin_memory = True):
         super().__init__()
-        self.save_hyperparameters()
-        self.data_dir = self.hparams.data_dir
+        self.save_hyperparameters() # self.hparams.data_dir, self.hparams.batch_size, self.hparams.num_workers, self.hparams.pin_memory
         self.transform = transforms.ToTensor()
-        self.batch_size = self.hparams.batch_size
-        self.num_workers = self.hparams.num_workers
-        self.pin_memory = self.hparams.pin_memory
 
     def prepare_data(self) -> None:
         # Downloading the datasets if they are not already downloaded
         # for training (typically this dataset would be used for train + val)
-        datasets.MNIST(self.data_dir, train=True, download=True)
+        datasets.MNIST(self.hparams.data_dir, train=True, download=True)
         # for evaluation (in this example I'm using it for val, 
         # typically it would be used for test)
-        datasets.MNIST(self.data_dir, train=False, download=True)
+        datasets.MNIST(self.hparams.data_dir, train=False, download=True)
 
     def setup(self, stage: str) -> None:
         # train / val (the only stage I'm using)
         if stage == 'fit':
-            self.train_data = datasets.MNIST(self.data_dir, train=True, transform=self.transform)
-            self.val_data = datasets.MNIST(self.data_dir, train=False, transform=self.transform)
+            self.train_data = datasets.MNIST(self.hparams.data_dir, train=True, transform=self.transform)
+            self.val_data = datasets.MNIST(self.hparams.data_dir, train=False, transform=self.transform)
 
         if stage == 'test':
             pass 
@@ -80,18 +76,18 @@ class MNISTDataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(self.train_data, 
-                          batch_size=self.batch_size, 
+                          batch_size=self.hparams.batch_size, 
                           shuffle=True,
-                          num_workers=self.num_workers,
-                          pin_memory=self.pin_memory,
+                          num_workers=self.hparams.num_workers,
+                          pin_memory=self.hparams.pin_memory,
                           )
 
     def val_dataloader(self):
         return DataLoader(self.val_data, 
-                          batch_size=self.batch_size, 
+                          batch_size=self.hparams.batch_size, 
                           shuffle=False,
-                          num_workers = self.num_workers,
-                          pin_memory=self.pin_memory,
+                          num_workers = self.hparams.num_workers,
+                          pin_memory=self.hparams.pin_memory,
                           )
     
 # Loss functions:
@@ -115,7 +111,6 @@ def loss_function(recon_x, x, mu, logvar, kl_coeff = 1):
 from functools import partial
 full_loss = partial(loss_function, kl_coeff = args.kl_coeff)
 
-
 # Good practices:
 # Use of nn.Sequential: https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/guide3/Debugging_PyTorch.html#Use-nn.Sequential-and-nn.ModuleList
 # nn.ReLU(inplace=True): https://uvadlc-notebooks.readthedocs.io/en/latest/tutorial_notebooks/guide3/Debugging_PyTorch.html#In-place-activation-functions
@@ -124,24 +119,21 @@ full_loss = partial(loss_function, kl_coeff = args.kl_coeff)
 # Lightning Module
 class plVAE(pl.LightningModule):
     # Model architecture
-    def __init__(self, input_dim = 784, hidden_dim = 400, latent_dim = 20):
+    def __init__(self, input_dim = 784, hidden_dim = 400, latent_dim = 20, learning_rate = 1e-3):
         super(plVAE, self).__init__()
-        self.save_hyperparameters()
-        self.input_dim = self.hparams.input_dim
-        self.hidden_dim = self.hparams.hidden_dim
-        self.latent_dim = self.hparams.latent_dim
+        self.save_hyperparameters() # self.hparams.input_dim, self.hparams.hidden_dim, self.hparams.latent_dim, self.hparams.learning_rate
 
-        self.encoder = nn.Sequential(*[nn.Linear(self.input_dim, self.hidden_dim),
+        self.encoder = nn.Sequential(*[nn.Linear(self.hparams.input_dim, self.hparams.hidden_dim),
                                       nn.ReLU(inplace=True), 
-                                      nn.Linear(self.hidden_dim, 2*self.latent_dim), 
+                                      nn.Linear(self.hparams.hidden_dim, 2*self.hparams.latent_dim), 
                                       ]) 
                                       # returns the concatenation of mu and logvar
                                       # default init for Linear is kaiming_uniform which only depends on input size, not output
                                       # (https://discuss.pytorch.org/t/clarity-on-default-initialization-in-pytorch/84696/2)
 
-        self.decoder = nn.Sequential(*[nn.Linear(self.latent_dim, self.hidden_dim),
+        self.decoder = nn.Sequential(*[nn.Linear(self.hparams.latent_dim, self.hparams.hidden_dim),
                                       nn.ReLU(inplace=True),
-                                      nn.Linear(self.hidden_dim, self.input_dim),
+                                      nn.Linear(self.hparams.hidden_dim, self.hparams.input_dim),
                                       nn.Sigmoid(),
                                       ])
     # Reparameterization + Forward
@@ -151,8 +143,8 @@ class plVAE(pl.LightningModule):
         return mu + eps*std
 
     def forward(self, x):
-        mu_logvar = self.encoder(x.view(-1, self.input_dim)) # (batch_size, 2 * latent_dim)
-        mu, logvar = mu_logvar[:,:self.latent_dim], mu_logvar[:,self.latent_dim:] # (batch_size, latent_dim) each
+        mu_logvar = self.encoder(x.view(-1, self.hparams.input_dim)) # (batch_size, 2 * latent_dim)
+        mu, logvar = mu_logvar[:,:self.hparams.latent_dim], mu_logvar[:,self.hparams.latent_dim:] # (batch_size, latent_dim) each
         z = self.reparameterize(mu, logvar)
         return self.decoder(z), mu, logvar
 
@@ -187,10 +179,9 @@ class plVAE(pl.LightningModule):
         loss, recon_l, kl_l = full_loss(recon_batch, data, mu, logvar) # loss calculation
         return loss / len(data), recon_l / len(data), kl_l / len(data)
 
-    
     # Optimizer
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=1e-3)
+        return torch.optim.Adam(self.parameters(), lr=self.hparams.learning_rate)
 
 # Callbacks:
 # Checkpoint the model with the minimum val_loss
@@ -205,7 +196,7 @@ class ImageCallback(Callback):
     # Sampling at the end of the validation epoch
     def on_validation_epoch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         epoch = trainer.current_epoch
-        sample = pl_module.decoder(torch.randn(64, pl_module.latent_dim, device=pl_module.device))
+        sample = pl_module.decoder(torch.randn(64, pl_module.hparams.latent_dim, device=pl_module.device))
         save_image(sample.view(64, 1, 28, 28).detach(),
                     'results/sample_' + str(epoch) + '.png')
     
@@ -224,13 +215,34 @@ class ImageCallback(Callback):
             save_image(comparison.detach(),
                         'results/reconstruction_' + str(epoch) + '.png', nrow=n)
 
-# Main:
+### Main:
 mnist_data = MNISTDataModule(batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=args.cuda)
 model = plVAE(hidden_dim = args.hidden_dim, latent_dim=args.latent_dim)
 trainer = pl.Trainer(accelerator=accelerator, devices=1, 
                      max_epochs=args.epochs,
                      callbacks=[checkpoint_callback, early_stopping_callback, ImageCallback()],
-                     log_every_n_steps=args.log_interval)
+                     log_every_n_steps=args.log_interval,
+                    #  auto_scale_batch_size="binsearch",
+                    #  auto_lr_find = True, 
+                     )
+
+# Automatic batch size finding:
+# Uncomment auto_scale_batch_size in trainer (above) 
+# and trainer.tune (below) for automatic batch_size finding
+# This requires batch_size to be a hyperparameter (self.hparams) of the LightningDataModule
+# (My result: 21399)
+
+# Automatic learning rate finder:
+# Uncomment auto_lr_find in trainer (above)
+# and trainer.tune(below) for automatic learning rate finding
+# This requires learning_rate or lr to be a hyperparameter (self.hparams) of the LightningModule
+# (My result with batch_size 128: 0.002754228703338169)
+
+# It would be sensible to include a learning rate scheduler,
+# so that it starts with 2.7e-3 and gets progressively lower during training
+
+# trainer.tune(model, datamodule=mnist_data)
+
 trainer.fit(model, datamodule=mnist_data)
 
 
