@@ -11,40 +11,41 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Callback
 
 
-parser = argparse.ArgumentParser(description='VAE MNIST Example')
-parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+parser = argparse.ArgumentParser(description='VAE MNIST using Pytorch Lightning')
+parser.add_argument('-b', '--batch-size', type=int, default=128, metavar='int',
                     help='input batch size for training (default: 128)')
-parser.add_argument('--epochs', type=int, default=10, metavar='N',
+parser.add_argument('-l', '--learning-rate', type=float, default=1e-3, metavar='float',
+                    help='learning rate for training (default: 1e-3)')                
+parser.add_argument('-e', '--epochs', type=int, default=10, metavar='int',
                     help='number of epochs to train (default: 10)')
-parser.add_argument('--no-cuda', action='store_true', default=False,
-                    help='disables CUDA training')
-parser.add_argument('--no-mps', action='store_true', default=False,
-                        help='disables macOS GPU training')
-parser.add_argument('--seed', type=int, default=1, metavar='S',
+parser.add_argument('-a', '--accelerator', default="gpu", metavar='str',
+                    help='accelerator for the pl.Trainer ("cpu", "gpu", "mps", ...), (default: "gpu")')
+parser.add_argument('-s', '--seed', type=int, default=1, metavar='int',
                     help='random seed (default: 1)')
-parser.add_argument('--log-interval', type=int, default=50, metavar='N',
+parser.add_argument('--log-interval', type=int, default=50, metavar='int',
                     help='how many batches to wait before logging training status')
-parser.add_argument('--kl-coeff', type=int, default=1, metavar='N',
+parser.add_argument('-k', '--kl-coeff', type=float, default=1, metavar='float',
                     help='importance of the KL loss on the overall loss function (default: 1)')
-parser.add_argument('--hidden-dim', type=int, default=400, metavar='N',
+parser.add_argument('--hidden-dim', type=int, default=400, metavar='int',
                     help='hidden layer dimension (encoder: input -> hidden -> latent, decoder: latent -> hidden -> input), (default: 400)')
-parser.add_argument('--latent-dim', type=int, default=20, metavar='N',
+parser.add_argument('--latent-dim', type=int, default=20, metavar='int',
                     help='latent dimension (encoder: input -> hidden -> latent, decoder: latent -> hidden -> input), (default: 20)')
-parser.add_argument('--num-workers', type=int, default=16, metavar='N',
-                    help='number of workers for the dataloaders')
+parser.add_argument('--num-workers', type=int, default=16, metavar='int',
+                    help='number of workers (cpu cores) for the dataloaders (default: 16)')
 args = parser.parse_args()
-args.cuda = not args.no_cuda and torch.cuda.is_available()
-use_mps = not args.no_mps and torch.backends.mps.is_available()
 
 torch.manual_seed(args.seed)
 
 # accelerator to use on pl.Trainer
-if args.cuda:
-    accelerator = "gpu"
-elif use_mps:
-    accelerator = "mps"
-else:
-    accelerator = "cpu"
+if args.accelerator not in ["gpu", "mps", "cpu"]:
+    print(f"Accelerator {args.accelerator} not supported.")
+    args.accelerator = "cpu"
+elif args.accelerator == "gpu" and not torch.cuda.is_available():
+    print(f"CUDA not available.")
+    args.accelerator = "cpu"
+elif args.accelerator == "mps" and not torch.backends.mps.is_available():
+    print(f"MPS not available.")
+    args.accelerator = "cpu"
 
 # See https://pytorch-lightning.readthedocs.io/en/latest/data/datamodule.html
 # when working with more than two splits, to see where train, val and test go.
@@ -216,9 +217,9 @@ class ImageCallback(Callback):
                         'results/reconstruction_' + str(epoch) + '.png', nrow=n)
 
 ### Main:
-mnist_data = MNISTDataModule(batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=args.cuda)
-model = plVAE(hidden_dim = args.hidden_dim, latent_dim=args.latent_dim)
-trainer = pl.Trainer(accelerator=accelerator, devices=1, 
+mnist_data = MNISTDataModule(batch_size=args.batch_size, num_workers=args.num_workers, pin_memory=(args.accelerator == "gpu"))
+model = plVAE(hidden_dim = args.hidden_dim, latent_dim=args.latent_dim, learning_rate=args.learning_rate)
+trainer = pl.Trainer(accelerator=args.accelerator, devices=1, 
                      max_epochs=args.epochs,
                      callbacks=[checkpoint_callback, early_stopping_callback, ImageCallback()],
                      log_every_n_steps=args.log_interval,
